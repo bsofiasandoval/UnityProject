@@ -1,113 +1,159 @@
 using UnityEngine;
+using System.Collections;
 
 public class TractorController : MonoBehaviour
 {
-    [Header("Area Settings")]
-    public float areaLength = 20f;   // Z-axis (length of the field)
-    public float areaWidth = 10f;    // X-axis (width of the field)
+    // Grid parameters
+    [Header("Grid Settings")]
+    public int rows = 5;               // Number of rows in the grid
+    public int columns = 5;            // Number of columns in the grid
+    public float cellSize = 2f;        // Size of each grid cell
 
-    [Header("Tractor Settings")]
-    public float velocity = 2f;      // Movement speed (units per second)
-    public float rowSpacing = 1f;    // Distance between each row (along X-axis)
+    // Movement parameters
+    [Header("Movement Settings")]
+    public float moveSpeed = 2f;       // Forward movement speed (units per second)
+    public float rotationSpeed = 90f;  // Rotation speed (degrees per second)
 
-    [Header("Seed Settings")]
-    public GameObject seedPrefab;
-    public float seedDropInterval = 1f; // Distance between seed drops (z cm)
-
-    private Vector3 startPosition;
-    private bool movingForward = true;
-    private float totalDistanceTraveled = 0f;
-    private float distanceSinceLastSeed = 0f;
+    // Internal state
     private int currentRow = 0;
-    private int totalRows;
+    private int currentColumn = 0;
+    private bool movingRight = true;    // Direction flag
+
+    private Vector3 basePosition;       // Starting position of the tractor
 
     void Start()
     {
-        // Set the starting position
-        startPosition = transform.position;
+        // Capture the initial position as the base position
+        basePosition = transform.position;
 
-        // Calculate the total number of rows the tractor needs to cover
-        totalRows = Mathf.CeilToInt(areaWidth / rowSpacing);
+        // Position the tractor at the starting cell relative to basePosition
+        Vector3 startPos = GetWorldPosition(currentRow, currentColumn);
+        transform.position = startPos;
 
-        // Position the tractor at the starting edge
-        transform.position = new Vector3(
-            startPosition.x - areaWidth / 2 + currentRow * rowSpacing,
-            startPosition.y,
-            startPosition.z - areaLength / 2
-        );
+        // Set initial rotation to face right (positive X)
+        transform.rotation = Quaternion.Euler(0, 90, 0);
+
+        // Start the movement coroutine
+        StartCoroutine(TractorMovement());
     }
 
-    void Update()
+    IEnumerator TractorMovement()
     {
-        MoveTractor();
-        CheckRowCompletion();
-        DropSeeds();
-    }
-
-    void MoveTractor()
-    {
-        // Move the tractor along the Z-axis
-        float step = velocity * Time.deltaTime;
-        float direction = movingForward ? 1 : -1;
-        transform.Translate(0, 0, step * direction);
-
-        // Update the total distance traveled and distance since last seed drop
-        totalDistanceTraveled += step;
-        distanceSinceLastSeed += step;
-    }
-
-    void CheckRowCompletion()
-    {
-        // Check if the tractor has reached the end of the current row
-        if (movingForward && transform.position.z >= startPosition.z + areaLength / 2)
+        while (currentRow < rows)
         {
-            // Move to the next row
-            ShiftToNextRow();
+            // Determine target column based on direction
+            int targetColumn = movingRight ? columns - 1 : 0;
+
+            // Move horizontally across the row
+            while (currentColumn != targetColumn)
+            {
+                // Rotate to face horizontal direction (right or left)
+                Quaternion targetRotation = Quaternion.Euler(0, movingRight ? 90 : -90, 0);
+                yield return StartCoroutine(RotateTowards(targetRotation));
+
+                // Move forward to next cell
+                yield return StartCoroutine(MoveForward());
+
+                // Update current column
+                currentColumn += movingRight ? 1 : -1;
+
+                Debug.Log($"Moved to Column: {currentColumn}, Row: {currentRow}");
+            }
+
+            // Reached end of the row, check if there is a next row
+            if (currentRow < rows - 1)
+            {
+                // Rotate to face forward (positive Z)
+                Quaternion rotateForward = Quaternion.Euler(0, 0, 0);
+                yield return StartCoroutine(RotateTowards(rotateForward));
+
+                // Move forward to next row
+                yield return StartCoroutine(MoveForward());
+
+                // Update current row
+                currentRow += 1;
+
+                Debug.Log($"Moved to Row: {currentRow}");
+
+                // Rotate to face opposite horizontal direction
+                Quaternion rotateOpposite = Quaternion.Euler(0, movingRight ? -90 : 90, 0);
+                yield return StartCoroutine(RotateTowards(rotateOpposite));
+
+                // Reverse direction
+                movingRight = !movingRight;
+
+                Debug.Log($"Direction Reversed. Now moving {(movingRight ? "Right" : "Left")}");
+            }
+            else
+            {
+                // Last row completed
+                Debug.Log("Tractor has completed traversing the grid.");
+                yield break;
+            }
         }
-        else if (!movingForward && transform.position.z <= startPosition.z - areaLength / 2)
-        {
-            // Move to the next row
-            ShiftToNextRow();
-        }
     }
 
-    void ShiftToNextRow()
+    IEnumerator MoveForward()
     {
-        currentRow++;
+        Vector3 startPos = transform.position;
+        Vector3 endPos = startPos + transform.forward * cellSize;
+        float distance = Vector3.Distance(startPos, endPos);
+        float duration = distance / moveSpeed;
+        float elapsed = 0f;
 
-        if (currentRow >= totalRows)
+        Debug.Log($"Moving from {startPos} to {endPos}");
+
+        while (elapsed < duration)
         {
-            // Finished covering the area
-            Debug.Log("Tractor has covered the entire area.");
-            enabled = false; // Stop the tractor
-            return;
+            transform.position = Vector3.Lerp(startPos, endPos, elapsed / duration);
+            elapsed += Time.deltaTime;
+            yield return null;
         }
 
-        // Move the tractor to the next row
-        movingForward = !movingForward; // Change direction
-
-        transform.position = new Vector3(
-            startPosition.x - areaWidth / 2 + currentRow * rowSpacing,
-            transform.position.y,
-            movingForward ? startPosition.z - areaLength / 2 : startPosition.z + areaLength / 2
-        );
+        transform.position = endPos;
     }
 
-    void DropSeeds()
+    IEnumerator RotateTowards(Quaternion targetRotation)
     {
-        if (distanceSinceLastSeed >= seedDropInterval)
+        while (Quaternion.Angle(transform.rotation, targetRotation) > 0.1f)
         {
-            // Drop seeds behind the tractor
-            Vector3 seedPosition = new Vector3(
-                transform.position.x,
-                transform.position.y,
-                transform.position.z
-            );
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            yield return null;
+        }
 
-            Instantiate(seedPrefab, seedPosition, Quaternion.identity);
+        transform.rotation = targetRotation;
+    }
 
-            // Reset the distance since last seed drop
-            distanceSinceLastSeed = 0f;
+    // Helper method to convert grid coordinates to world position relative to basePosition
+    Vector3 GetWorldPosition(int row, int column)
+    {
+        float x = column * cellSize;
+        float z = row * cellSize;
+        return basePosition + new Vector3(x, 0, z);
+    }
+
+    // Optional: Visualize the grid in the editor
+    void OnDrawGizmos()
+    {
+        Gizmos.color = Color.green;
+
+        // Calculate basePosition if the game is running
+        Vector3 origin = Application.isPlaying ? basePosition : transform.position;
+
+        // Draw rows
+        for (int i = 0; i <= rows; i++)
+        {
+            Vector3 start = origin + new Vector3(0, 0, i * cellSize);
+            Vector3 end = start + new Vector3((columns - 1) * cellSize, 0, 0);
+            Gizmos.DrawLine(start, end);
+        }
+
+        // Draw columns
+        for (int j = 0; j <= columns; j++)
+        {
+            Vector3 start = origin + new Vector3(j * cellSize, 0, 0);
+            Vector3 end = start + new Vector3(0, 0, (rows - 1) * cellSize);
+            Gizmos.DrawLine(start, end);
         }
     }
 }
