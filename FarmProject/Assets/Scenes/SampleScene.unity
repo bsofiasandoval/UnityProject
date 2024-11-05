@@ -1953,7 +1953,7 @@ MonoBehaviour:
   rows: 9
   columns: 13
   cellSize: 1.17
-  moveSpeed: 3
+  moveSpeed: 10
   rotationSpeed: 50
 --- !u!4 &1539076063 stripped
 Transform:
